@@ -1,50 +1,100 @@
-# Pacer
+# 🐢➡️🐇 Pacer
 
-A browser extension that speeds up slow speakers on YouTube. It listens to how fast the person in the video is actually talking. If they're slower than your comfortable pace, it speeds the video up to match. If they already talk at a normal pace, it leaves the video alone. It never slows anything down.
+**Some people talk slow. Your time doesn't have to.**
 
-Works without captions. Runs entirely in your browser and collects nothing.
+Pacer is a browser extension that listens to whoever's talking in your YouTube video and asks one question: *is this person slower than you'd like?*
 
-## How it decides
+- Slow lecturer, drawn-out tutorial? **Sped up**, just enough to match your comfortable pace.
+- Normal speaker? **Left alone at 1x.**
+- Fast talker? **Also left alone.** Pacer never slows anything down.
 
-1. **Listen.** Pacer reads the loudness of the video's sound in the speech band (around 1 kHz) 50 times a second. It doesn't record, store or send any audio.
-2. **Count syllables.** Every vowel is a burst of loudness, so syllables show up as peaks. A peak counts when it stands at least 2 dB above the dips on either side and comes at least 0.1 s after the previous one.
-3. **Ignore pauses.** Silences longer than 0.3 s don't count as talking time. That gives the *articulation rate*: syllables per second while actually speaking.
-4. **Check that it's speech.** The reading is only trusted when there's enough speech, the volume swings the way speech does, there are real pauses, and the syllables come at irregular intervals rather than a steady musical beat.
-5. **Set the speed once.** Speed = your target pace ÷ the speaker's pace, capped at your maximum. Anything under a 1.1x boost is left at 1x. After about 15 s of listening, the speed is set once and stays put.
-6. **Remember the channel.** Each channel's average pace is saved, so its next video starts at the right speed immediately.
+No captions needed. No servers. No tracking. It all happens in your browser, and Pacer forgets the sound as soon as it has measured it.
 
-If you change the speed yourself, Pacer leaves that video alone.
+---
 
-## Controls
+## 🎧 How it knows
 
-- **Everywhere**: popup checkbox, or <kbd>Alt</kbd>+<kbd>Shift</kbd>+<kbd>P</kbd>
-- **This channel**: e.g. turn it off for music channels
-- **This video**: one-off skip
-- **Comfortable pace**: raise it if Pacer leaves too many videos alone; lower it if it speeds things up too much
-- **Fastest speed**: hard cap
+It doesn't understand a word anyone says, and it doesn't need to. It just counts **syllables**.
 
-## Build and install
+Every vowel you speak is a little burst of loudness: *ba-NA-na* is three bumps. Pacer watches the volume of the speech band (around 1 kHz) 50 times a second and counts the bumps:
+
+```
+loudness
+   ▲      ▄█▄     ▄█▄  ▄█▄            ▄█▄    ▄█▄
+   │    ▄█████▄ ▄██████████▄        ▄█████▄██████▄
+   │▁▁▄█████████████████████▄▁▁▁▁▁▁▄██████████████▄▁▁
+   └──────────────────────────────────────────────────▶ time
+         syl     syl   syl    (pause,          syl    syl
+                               not counted)
+```
+
+1. **Find the bumps.** A peak counts when it rises at least 2 dB above the dips on both sides.
+2. **Skip the "ummm… pause."** Silences longer than 0.3 s don't count as talking time.
+3. **Divide.** Syllables ÷ talking time = how fast this person *really* speaks.
+4. **Sanity-check.** Is it actually speech? Music has a steady beat and never pauses. Speech is irregular and takes breaths. If it smells like music or noise, Pacer shrugs and touches nothing.
+5. **Set it once.** After about 15 seconds of listening, the speed gets set: *your pace ÷ their pace*. No constant speeding up and slowing down mid-video.
+6. **Remember the channel.** Next time you open that channel, Pacer starts at the right speed straight away.
+
+> Your target is **4.5 syllables/second** by default. Someone talking at 3 gets bumped to **1.5x**. Someone at 4.4 stays at **1x**.
+
+## 🕹️ You're the boss
+
+| Want to… | Do this |
+|---|---|
+| Turn it all off | Popup toggle, or <kbd>Alt</kbd>+<kbd>Shift</kbd>+<kbd>P</kbd> |
+| Never touch a channel (music, ASMR…) | Untick **This channel** |
+| Skip just this one video | Untick **This video** |
+| Speed up more videos | Slide **Comfortable pace** up |
+| Never go crazy fast | Set **Fastest speed** |
+
+And if you change the speed yourself, Pacer takes the hint and leaves that video alone. 🫡
+
+A small label on the video always tells you what Pacer just did, and screen readers announce it too.
+
+## 🚀 Install (developer mode for now)
 
 ```sh
+git clone https://github.com/Cos2ubh/pacer.git
+cd pacer
 npm install
 npm run build
 ```
 
-In Chrome, open `chrome://extensions`, turn on Developer mode, choose **Load unpacked** and pick the `dist` folder.
+Then open `chrome://extensions`, flip on **Developer mode**, hit **Load unpacked** and choose the `dist` folder. Open a slow talker and watch the magic.
+
+## 🔬 Under the hood
+
+```
+src/
+  estimator.ts   loudness → syllables/sec + confidence (pure, tested)
+  decide.ts      syllables/sec → playback speed
+  audio.ts       taps the video's sound without changing what you hear
+  youtube.ts     every YouTube-specific selector, quarantined in one file
+  content.ts     the per-video brain
+  popup.ts       the knobs
+```
 
 ```sh
-npm test          # estimator and decision tests
+npm test           # the estimator vs. synthetic speech from 2.5 to 6.5 syl/s
 npm run typecheck
 ```
 
-## Known limits
+On synthetic speech the estimator lands within about **6%** of the true rate. Real humans are messier, which is why the next section exists.
 
-- Tuning comes from synthetic speech. Real-world thresholds will need adjusting against actual videos.
-- Speech over loud background music may read as "unsure" and be left alone.
-- The pace is measured in syllables, so the right target differs between languages.
-- Another extension that processes YouTube's audio (equaliser, volume booster) blocks Pacer from listening. Channel memory still works.
-- Watch pages only; Shorts and embedded players are skipped.
+## 🚧 Honest limits
 
-## License
+- **Early days.** The thresholds come from synthetic speech and still need tuning on real videos.
+- **Talking over loud music** may confuse it. When it isn't sure, it does nothing rather than guessing.
+- **Languages differ.** Spanish and Japanese pack more syllables per second than English, so you may want a different target for them.
+- **Audio extensions clash.** If an equaliser or volume booster already owns the video's sound, Pacer can't listen. Channel memory still works.
+- **Watch pages only.** No Shorts, no embeds.
 
-MIT
+Found a speaker Pacer gets wrong? [Open an issue](https://github.com/Cos2ubh/pacer/issues) with the link. Those are the best test cases.
+
+## 🔒 Privacy
+
+Pacer only runs on youtube.com and only asks for storage. It makes no network requests, and nothing about your viewing leaves your machine. The only thing it saves is a number per channel: how fast they talk.
+
+## 📜 License
+
+MIT. Take it, fork it, make your own slow people go fast.
