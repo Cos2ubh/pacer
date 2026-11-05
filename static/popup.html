@@ -1,0 +1,35 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>Pacer</title>
+    <link rel="stylesheet" href="popup.css" />
+  </head>
+  <body>
+    <h1>Pacer</h1>
+    <p id="status" role="status" aria-live="polite">Open a YouTube video to see what Pacer is doing.</p>
+
+    <fieldset>
+      <legend>Adjust speed</legend>
+      <label><input type="checkbox" id="enabled" /> Everywhere</label>
+      <label><input type="checkbox" id="channel" disabled /> <span id="channel-label">This channel</span></label>
+      <label><input type="checkbox" id="video" disabled /> This video</label>
+    </fieldset>
+
+    <label for="target" class="block">Comfortable pace: <output id="target-out" for="target"></output></label>
+    <input type="range" id="target" min="3" max="7" step="0.1" aria-describedby="target-hint" />
+    <p id="target-hint" class="hint">Speakers slower than this get sped up. Raise it to speed up more videos.</p>
+
+    <label for="max" class="block">Fastest speed</label>
+    <select id="max">
+      <option value="1.5">1.5x</option>
+      <option value="1.75">1.75x</option>
+      <option value="2">2x</option>
+      <option value="2.5">2.5x</option>
+      <option value="3">3x</option>
+    </select>
+
+    <p class="hint">Shortcut: <kbd>Alt</kbd>+<kbd>Shift</kbd>+<kbd>P</kbd> turns Pacer on or off.</p>
+    <script src="popup.js"></script>
+  </body>
+</html>
