@@ -59,6 +59,8 @@ let lastPacerRate: number | null = null; // last value we wrote, to tell our cha
 let lastBaseline = 1;
 let lastUserInput = 0;
 let ticks = 0;
+let retired = false; // set once this copy of the script has been orphaned
+const timers: ReturnType<typeof setInterval>[] = [];
 const taps = new WeakMap<HTMLVideoElement, AudioTap>();
 const watched = new WeakSet<HTMLVideoElement>();
 
@@ -80,7 +82,7 @@ async function init(): Promise<void> {
   });
 
   onButtonClick(() => {
-    if (session) setVideoActive(!isActive(session));
+    if (alive() && session) setVideoActive(!isActive(session));
   });
 
   for (const type of ["pointerdown", "keydown"]) {
@@ -88,13 +90,39 @@ async function init(): Promise<void> {
   }
 
   onNavigate(refresh);
-  setInterval(tick, 1000 / FRAME_RATE);
-  setInterval(refresh, 1000); // safety net for navigations we didn't hear about
+  timers.push(setInterval(tick, 1000 / FRAME_RATE));
+  timers.push(setInterval(refresh, 1000)); // safety net for navigations we didn't hear about
   chrome.runtime.onMessage.addListener(onMessage);
   refresh();
 }
 
+/**
+ * When the extension is reloaded or updated, this copy of the script keeps
+ * running in the open tab but loses its link to Chrome, and every chrome.*
+ * call throws "Extension context invalidated". Detect that and bow out.
+ */
+function alive(): boolean {
+  if (retired) return false;
+  let ok = false;
+  try {
+    ok = Boolean(chrome.runtime?.id);
+  } catch {
+    /* invalidated */
+  }
+  if (!ok) retire();
+  return ok;
+}
+
+function retire(): void {
+  retired = true;
+  for (const t of timers) clearInterval(t);
+  timers.length = 0;
+  session = null;
+  syncButton(null);
+}
+
 function refresh(): void {
+  if (!alive()) return;
   const id = currentVideoId();
   const video = id ? findVideo() : null;
   if (!id || !video) {
@@ -167,7 +195,7 @@ function setVideoActive(on: boolean): void {
     s.forceOn = true;
     if (!settings.enabled) {
       settings = { ...settings, enabled: true };
-      void saveSettings({ enabled: true });
+      saveSettings({ enabled: true }).catch(() => alive());
     }
     restart(s);
     showIndicator("Pacer on · listening…");
@@ -373,7 +401,13 @@ function resolveChannel(s: Session): void {
 async function useChannelCache(): Promise<void> {
   const s = session;
   if (!s?.channel || s.phase !== "measuring" || s.provisional) return;
-  const cached = await getChannelRate(s.channel.key);
+  let cached;
+  try {
+    cached = await getChannelRate(s.channel.key);
+  } catch {
+    alive(); // storage fails when we've been orphaned
+    return;
+  }
   if (!cached || session !== s || s.phase !== "measuring" || s.provisional) return;
   s.provisional = true; // the final check still runs and can correct it
   const speed = speedFor(cached.rate, s);
@@ -386,12 +420,16 @@ async function useChannelCache(): Promise<void> {
 
 async function rememberChannel(s: Session, rate: number): Promise<void> {
   if (!s.channel) return;
-  const prev = await getChannelRate(s.channel.key);
-  await setChannelRate(s.channel.key, {
-    rate: blendRate(prev?.rate, prev?.samples ?? 0, rate),
-    samples: (prev?.samples ?? 0) + 1,
-    name: s.channel.name,
-  });
+  try {
+    const prev = await getChannelRate(s.channel.key);
+    await setChannelRate(s.channel.key, {
+      rate: blendRate(prev?.rate, prev?.samples ?? 0, rate),
+      samples: (prev?.samples ?? 0) + 1,
+      name: s.channel.name,
+    });
+  } catch {
+    alive(); // storage fails when we've been orphaned
+  }
 }
 
 // ---- popup -------------------------------------------------------------------
