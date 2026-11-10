@@ -1,29 +1,40 @@
 // Runs on youtube.com. For each video: start at the channel's known pace if we
-// have one, listen to the speaker, then set the speed once. Hands off the
-// moment the viewer picks a speed themselves.
+// have one, listen to the speaker, set a speed within a few seconds, then make
+// at most one correction once we've heard more. Hands off the moment the
+// viewer picks a speed themselves.
 
 import { AudioTap } from "./audio";
 import { blendRate, decideSpeed, MIN_CONFIDENCE } from "./decide";
-import { estimateRate, type Estimate } from "./estimator";
+import { combineEstimates, estimateRate, type Estimate } from "./estimator";
 import { showIndicator } from "./indicator";
 import type { Phase, Request, Status } from "./messages";
 import { DEFAULTS, getChannelRate, loadSettings, onSettingsChanged, setChannelRate, type Settings } from "./settings";
 import { adShowing, currentChannel, currentVideoId, findVideo, onNavigate, type Channel } from "./youtube";
 
 const FRAME_RATE = 50; // loudness readings per second
-const FIRST_LOOK_S = 15; // listen this long before the first decision
-const RECHECK_S = 5; // then retry this often while unsure
+const QUICK_SPEECH_S = 4; // seconds of speech before the first speed is set
+const FINAL_SPEECH_S = 12; // seconds of speech before the one allowed correction
+const CHECK_EVERY_S = 1; // how often to re-run the estimate while listening
 const GIVE_UP_S = 90; // stop listening after this much playback
+const CORRECTION_MIN = 0.15; // only correct the quick guess if it was off by this much
 const USER_INPUT_WINDOW_MS = 1500; // a speed change this soon after a click/key is the viewer's
+
+/** A stretch of loudness readings all captured at the same playback speed. */
+interface Segment {
+  captureRate: number;
+  levels: number[];
+}
 
 interface Session {
   videoId: string;
   video: HTMLVideoElement;
   channel?: Channel;
   phase: Phase;
-  levels: number[];
+  segments: Segment[];
+  frames: number; // total readings across segments
   nextCheck: number; // frame count at which to evaluate next
-  captureRate: number; // playback speed while the current levels were recorded
+  /** A speed is in place (quick guess or channel memory) and only the final check remains. */
+  provisional: boolean;
   baseline: number; // speed the video had before Pacer touched it
   applied: number | null; // speed Pacer set, if any
   estimate?: Estimate;
@@ -50,7 +61,9 @@ async function init(): Promise<void> {
       showIndicator(next.enabled ? "Pacer on" : "Pacer off");
     }
     applyPolicy();
-    if (session?.phase === "set") decide(); // target or max speed may have moved
+    // Target or max speed may have moved; respond right away.
+    const s = session;
+    if (s?.estimate && (s.phase === "set" || (s.phase === "measuring" && s.provisional))) decide("update");
   });
 
   for (const type of ["pointerdown", "keydown"]) {
@@ -83,9 +96,10 @@ function startSession(videoId: string, video: HTMLVideoElement): void {
     videoId,
     video,
     phase: "measuring",
-    levels: [],
-    nextCheck: FIRST_LOOK_S * FRAME_RATE,
-    captureRate: current,
+    segments: [{ captureRate: current, levels: [] }],
+    frames: 0,
+    nextCheck: CHECK_EVERY_S * FRAME_RATE,
+    provisional: false,
     baseline,
     applied: current === lastPacerRate && current !== baseline ? current : null,
     videoOff: false,
@@ -127,12 +141,12 @@ function applyPolicy(): void {
     return;
   }
   if (s.phase === "off") {
+    // Back on. Whatever we heard earlier in this video still counts.
+    s.phase = "measuring";
     if (s.estimate && s.estimate.confidence >= MIN_CONFIDENCE) {
-      s.phase = "set";
-      decide();
+      s.provisional = true;
+      decide("update");
     } else {
-      s.phase = "measuring";
-      resetLevels(s);
       void useChannelCache();
     }
   }
@@ -143,13 +157,15 @@ function setSpeed(rate: number): void {
   if (!s) return;
   lastPacerRate = rate;
   s.video.playbackRate = rate;
-  if (s.phase === "measuring") resetLevels(s);
+  startSegment(s);
 }
 
-function resetLevels(s: Session): void {
-  s.levels = [];
-  s.nextCheck = FIRST_LOOK_S * FRAME_RATE;
-  s.captureRate = s.video.playbackRate;
+/** Starts a new stretch of readings at the current speed; earlier ones are kept. */
+function startSegment(s: Session): void {
+  const rate = s.video.playbackRate;
+  const last = s.segments[s.segments.length - 1];
+  if (last && last.levels.length === 0) last.captureRate = rate;
+  else s.segments.push({ captureRate: rate, levels: [] });
 }
 
 /** Speed for a speaking rate: never below what the viewer had chosen. */
@@ -162,6 +178,7 @@ function onRateChange(video: HTMLVideoElement): void {
   if (!s || s.video !== video) return;
   const rate = video.playbackRate;
   if (rate === lastPacerRate) return; // our own change
+  startSegment(s);
 
   const byViewer = performance.now() - lastUserInput < USER_INPUT_WINDOW_MS;
   if (byViewer) {
@@ -181,7 +198,6 @@ function onRateChange(video: HTMLVideoElement): void {
   } else {
     s.baseline = rate;
     lastBaseline = rate;
-    if (s.phase === "measuring") resetLevels(s);
   }
 }
 
@@ -200,39 +216,76 @@ function tick(): void {
   const level = tap?.state === "ok" ? tap.level() : undefined;
   if (level === undefined) return;
 
-  s.levels.push(level);
-  if (s.levels.length >= s.nextCheck) evaluate(s);
+  if (s.frames === 0 && !s.provisional) showIndicator("Pacer: listening…");
+  s.segments[s.segments.length - 1]!.levels.push(level);
+  s.frames++;
+  if (s.frames >= s.nextCheck) {
+    s.nextCheck += CHECK_EVERY_S * FRAME_RATE;
+    evaluate(s);
+  }
+}
+
+/** Everything heard so far in this video, each stretch scaled by the speed it was heard at. */
+function heardSoFar(s: Session, fullConfidenceSpeech: number): Estimate {
+  const parts = s.segments
+    .filter((seg) => seg.levels.length >= 10)
+    .map((seg) => estimateRate(seg.levels, { frameRate: FRAME_RATE, playbackRate: seg.captureRate }));
+  return combineEstimates(parts, fullConfidenceSpeech);
 }
 
 function evaluate(s: Session): void {
-  const est = estimateRate(s.levels, { frameRate: FRAME_RATE, playbackRate: s.captureRate });
-  if (est.confidence >= MIN_CONFIDENCE) {
-    s.estimate = est;
-    s.phase = "set";
-    decide();
-    void rememberChannel(s, est.rate);
-    return;
+  // Stage 1: a quick decision as soon as we've heard a few seconds of speech.
+  if (!s.provisional) {
+    const quick = heardSoFar(s, QUICK_SPEECH_S);
+    if (quick.speechSeconds >= QUICK_SPEECH_S && quick.confidence >= MIN_CONFIDENCE) {
+      s.estimate = quick;
+      s.provisional = true;
+      decide("quick");
+    }
   }
-  if (s.levels.length >= GIVE_UP_S * FRAME_RATE) {
-    s.estimate = est;
-    s.phase = "unsure";
-    if (s.applied === null) showIndicator("Pacer: no clear speech, left as is");
-    return;
+
+  // Stage 2: one correction, only if the quick guess was clearly off.
+  if (s.provisional) {
+    const full = heardSoFar(s, FINAL_SPEECH_S);
+    if (full.speechSeconds >= FINAL_SPEECH_S && full.confidence >= MIN_CONFIDENCE) {
+      s.estimate = full;
+      s.phase = "set";
+      decide("final");
+      void rememberChannel(s, full.rate);
+      return;
+    }
   }
-  s.nextCheck += RECHECK_S * FRAME_RATE;
+
+  if (s.frames >= GIVE_UP_S * FRAME_RATE) {
+    if (s.estimate) {
+      s.phase = "set"; // keep the quick decision
+    } else {
+      s.phase = "unsure";
+      if (s.applied === null) showIndicator("Pacer: no clear speech, left as is");
+    }
+  }
 }
 
-/** Applies the speed for the current estimate. */
-function decide(): void {
+/**
+ * Applies the speed for the current estimate.
+ * quick: first decision, always announced.
+ * final: the one correction, only if the guess was clearly off.
+ * update: settings changed or Pacer was switched back on.
+ */
+function decide(stage: "quick" | "final" | "update"): void {
   const s = session;
-  if (!s?.estimate || s.phase !== "set") return;
+  if (!s?.estimate) return;
   const rate = s.estimate.rate;
   const speed = speedFor(rate, s);
-  const current = s.applied ?? s.video.playbackRate;
-  if (s.applied === null || Math.abs(speed - current) >= 0.1) {
+  const current = s.video.playbackRate;
+  const minChange = stage === "final" ? CORRECTION_MIN : 0.05;
+  const changed = Math.abs(speed - current) >= minChange - 1e-9;
+
+  if (changed) {
     setSpeed(speed);
     s.applied = speed === s.baseline ? null : speed;
   }
+  if (stage === "final" && !changed) return; // quietly confirmed
   showIndicator(
     s.applied === null
       ? `Pacer: pace is fine (${rate.toFixed(1)} syl/s)`
@@ -250,16 +303,17 @@ function resolveChannel(s: Session): void {
   void useChannelCache();
 }
 
-/** Start at the channel's usual pace so the first seconds aren't wasted. */
+/** Start at the channel's usual pace so there's no wait at all. */
 async function useChannelCache(): Promise<void> {
   const s = session;
-  if (!s?.channel || s.phase !== "measuring" || s.applied !== null) return;
+  if (!s?.channel || s.phase !== "measuring" || s.provisional) return;
   const cached = await getChannelRate(s.channel.key);
-  if (!cached || session !== s || s.phase !== "measuring") return;
+  if (!cached || session !== s || s.phase !== "measuring" || s.provisional) return;
+  s.provisional = true; // the final check still runs and can correct it
   const speed = speedFor(cached.rate, s);
   if (speed !== s.video.playbackRate) {
     setSpeed(speed);
-    s.applied = speed;
+    s.applied = speed === s.baseline ? null : speed;
     showIndicator(`Pacer ${speed}x · this channel's usual pace`);
   }
 }
@@ -297,7 +351,7 @@ function onMessage(msg: Request, _sender: chrome.runtime.MessageSender, reply: (
     session.videoOff = msg.value;
     applyPolicy();
   }
-  if (!session?.channel && session) resolveChannel(session);
+  if (session && !session.channel) resolveChannel(session);
   reply(status());
 }
 

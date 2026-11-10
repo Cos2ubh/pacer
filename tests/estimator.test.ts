@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { estimateRate } from "../src/estimator";
+import { combineEstimates, estimateRate } from "../src/estimator";
 
 const FRAME_RATE = 50;
 
@@ -72,6 +72,13 @@ describe("estimateRate", () => {
     expect(Math.abs(est.rate - trueRate / 2) / (trueRate / 2)).toBeLessThan(0.15);
   });
 
+  it("can decide on a slow speaker from a 6 second listen", () => {
+    const { levels, trueRate } = synthSpeech({ rate: 2.5, seconds: 6, seed: 11 });
+    const est = estimateRate(levels, { frameRate: FRAME_RATE, fullConfidenceSpeech: 4 });
+    expect(est.confidence).toBeGreaterThan(0.6);
+    expect(Math.abs(est.rate - trueRate) / trueRate).toBeLessThan(0.15);
+  });
+
   it("has no confidence with too little speech", () => {
     const { levels } = synthSpeech({ rate: 4, seconds: 4 });
     expect(estimateRate(levels, { frameRate: FRAME_RATE }).confidence).toBeLessThan(0.6);
@@ -80,6 +87,23 @@ describe("estimateRate", () => {
   it("has no confidence in silence", () => {
     const levels = new Array(2000).fill(-60);
     expect(estimateRate(levels, { frameRate: FRAME_RATE }).confidence).toBe(0);
+  });
+
+  it("merges stretches heard at different speeds into one reading", () => {
+    // Same 3 syl/s speaker: first heard at 1x, then at 1.5x after Pacer sped it up.
+    const before = synthSpeech({ rate: 3, seconds: 8, seed: 21 });
+    const after = synthSpeech({ rate: 4.5, seconds: 12, seed: 22 }); // 3 syl/s sounds like 4.5 at 1.5x
+    const merged = combineEstimates([
+      estimateRate(before.levels, { frameRate: FRAME_RATE }),
+      estimateRate(after.levels, { frameRate: FRAME_RATE, playbackRate: 1.5 }),
+    ]);
+    expect(merged.rate).toBeGreaterThan(3 * 0.88);
+    expect(merged.rate).toBeLessThan(3 * 1.12);
+    expect(merged.confidence).toBeGreaterThan(0.6);
+  });
+
+  it("merging nothing gives no confidence", () => {
+    expect(combineEstimates([]).confidence).toBe(0);
   });
 
   it("does not trust a steady beat over a loud bed (music)", () => {

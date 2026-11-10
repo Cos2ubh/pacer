@@ -34,7 +34,8 @@ function describe(s: Status | null): string {
     case "off":
       return "Off for this video.";
     case "measuring":
-      return s.speed !== 1 ? `Listening… starting at ${s.speed}x from this channel's usual pace.` : "Listening to the speaker…";
+      if (s.rate) return `Speaker at ${pace}, running at ${s.speed}x. Fine-tuning…`;
+      return s.speed !== 1 ? `Running at ${s.speed}x from this channel's usual pace. Fine-tuning…` : "Listening to the speaker…";
     case "set":
       return s.speed > 1 ? `Speaker at ${pace}, sped up to ${s.speed}x.` : `Speaker at ${pace}, already at your pace.`;
     case "unsure":

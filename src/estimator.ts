@@ -11,7 +11,9 @@ export interface Estimate {
   syllables: number;
   /** Seconds of speech in the window, in the video's own time. */
   speechSeconds: number;
-  /** 0..1, how much the reading can be trusted. */
+  /** 0..1, how speech-like the signal is, regardless of how much we heard. */
+  quality: number;
+  /** 0..1, how much the reading can be trusted: quality x enough speech heard. */
   confidence: number;
 }
 
@@ -20,6 +22,8 @@ export interface EstimateOptions {
   frameRate: number;
   /** Playback speed the audio was captured at. Defaults to 1. */
   playbackRate?: number;
+  /** Seconds of speech needed for full confidence. Defaults to 12. */
+  fullConfidenceSpeech?: number;
 }
 
 /** A peak must stand this many dB above the dips on both sides. */
@@ -30,10 +34,12 @@ const MIN_PEAK_GAP_S = 0.1;
 const PAUSE_S = 0.3;
 /** Frames within this many dB of the loud end count as speech. */
 const SPEECH_RANGE_DB = 25;
-/** Seconds of speech needed for full confidence. */
+/** Default seconds of speech needed for full confidence. */
 const FULL_CONFIDENCE_SPEECH_S = 12;
 
-export const EMPTY_ESTIMATE: Estimate = { rate: 0, syllables: 0, speechSeconds: 0, confidence: 0 };
+export const EMPTY_ESTIMATE: Estimate = { rate: 0, syllables: 0, speechSeconds: 0, quality: 0, confidence: 0 };
+
+const isPlausible = (rate: number) => rate >= 1.5 && rate <= 9;
 
 export function estimateRate(levels: ArrayLike<number>, opts: EstimateOptions): Estimate {
   const n = levels.length;
@@ -62,7 +68,7 @@ export function estimateRate(levels: ArrayLike<number>, opts: EstimateOptions): 
 
   // Confidence: each factor is 0..1 and they multiply, so any one red flag
   // is enough to stop us from acting.
-  const amount = clamp01(speechSeconds / FULL_CONFIDENCE_SPEECH_S);
+  const amount = clamp01(speechSeconds / (opts.fullConfidenceSpeech ?? FULL_CONFIDENCE_SPEECH_S));
   // Speech swings widely between syllables and pauses; music and steady
   // noise sit at a flatter level.
   const dynamics = clamp01((range - 10) / 10);
@@ -70,14 +76,30 @@ export function estimateRate(levels: ArrayLike<number>, opts: EstimateOptions): 
   const pauses = speechFrames / n > 0.97 ? 0.3 : 1;
   // Syllables come at irregular intervals; a steady beat does not.
   const rhythm = rhythmScore(peaks, speech);
-  const plausible = rate >= 1.5 && rate <= 9 ? 1 : 0;
+  const plausible = isPlausible(rate) ? 1 : 0;
+  const quality = dynamics * pauses * rhythm * plausible;
 
-  return {
-    rate,
-    syllables: peaks.length,
-    speechSeconds,
-    confidence: amount * dynamics * pauses * rhythm * plausible,
-  };
+  return { rate, syllables: peaks.length, speechSeconds, quality, confidence: amount * quality };
+}
+
+/**
+ * Merges readings taken in separate stretches (e.g. before and after a speed
+ * change) into one, so nothing heard so far is thrown away.
+ */
+export function combineEstimates(parts: Estimate[], fullConfidenceSpeech = FULL_CONFIDENCE_SPEECH_S): Estimate {
+  let syllables = 0;
+  let speechSeconds = 0;
+  let weightedQuality = 0;
+  for (const p of parts) {
+    syllables += p.syllables;
+    speechSeconds += p.speechSeconds;
+    weightedQuality += p.quality * p.speechSeconds;
+  }
+  if (speechSeconds === 0) return EMPTY_ESTIMATE;
+  const rate = syllables / speechSeconds;
+  const quality = isPlausible(rate) ? weightedQuality / speechSeconds : 0;
+  const confidence = clamp01(speechSeconds / fullConfidenceSpeech) * quality;
+  return { rate, syllables, speechSeconds, quality, confidence };
 }
 
 function smooth(levels: ArrayLike<number>): number[] {
@@ -148,7 +170,7 @@ function rhythmScore(peaks: number[], speech: boolean[]): number {
     }
     if (continuous) intervals.push(b - a);
   }
-  if (intervals.length < 8) return 0.5;
+  if (intervals.length < 5) return 0.5;
   const mean = intervals.reduce((x, y) => x + y, 0) / intervals.length;
   const variance = intervals.reduce((x, y) => x + (y - mean) ** 2, 0) / intervals.length;
   const cv = Math.sqrt(variance) / mean;

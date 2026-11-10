@@ -32,8 +32,9 @@ loudness
 2. **Skip the "ummm… pause."** Silences longer than 0.3 s don't count as talking time.
 3. **Divide.** Syllables ÷ talking time = how fast this person *really* speaks.
 4. **Sanity-check.** Is it actually speech? Music has a steady beat and never pauses. Speech is irregular and takes breaths. If it smells like music or noise, Pacer shrugs and touches nothing.
-5. **Set it once.** After about 15 seconds of listening, the speed gets set: *your pace ÷ their pace*. No constant speeding up and slowing down mid-video.
-6. **Remember the channel.** Next time you open that channel, Pacer starts at the right speed straight away.
+5. **Kick in fast.** After about **4 seconds of actual speech** (usually 5–6 seconds into the video), the speed gets set: *your pace ÷ their pace*.
+6. **One correction, max.** Pacer keeps listening until it has heard about 12 seconds of speech. It adjusts only if the first guess was off by 0.15x or more. No constant speeding up and slowing down mid-video.
+7. **Remember the channel.** Next time you open that channel, Pacer starts at the right speed in the very first second.
 
 > Your target is **4.5 syllables/second** by default. Someone talking at 3 gets bumped to **1.5x**. Someone at 4.4 stays at **1x**.
 
