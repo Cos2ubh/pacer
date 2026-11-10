@@ -38,6 +38,10 @@ loudness
 
 > Your target is **4.5 syllables/second** by default. Someone talking at 3 gets bumped to **1.5x**. Someone at 4.4 stays at **1x**.
 
+**No idea what "5 syllables a second" sounds like?** Nobody does. Hit **▶ Hear this pace** in the popup and your browser's built-in voice reads a sample sentence at exactly that pace. Slide, listen, repeat until it feels right. 🎚️
+
+As a sanity check, Pacer's estimator was run on a synthesized voice at four speeds. Between 3.9 and 6 syllables/s it landed within about **6%** of the true count, which is the range where it decides what to speed up.
+
 ## 🕹️ You're the boss
 
 | Want to… | Do this |

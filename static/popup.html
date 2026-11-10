@@ -18,7 +18,14 @@
 
     <label for="target" class="block">Comfortable pace: <output id="target-out" for="target"></output></label>
     <input type="range" id="target" min="3" max="7" step="0.1" aria-describedby="target-hint" />
-    <p id="target-hint" class="hint">Speakers slower than this get sped up. Raise it to speed up more videos.</p>
+    <p id="target-hint" class="hint">
+      Speakers slower than this get sped up.<br />
+      Slow lecture ≈ 3 · everyday talk ≈ 4–5 · fast podcast ≈ 6+
+    </p>
+    <div class="demo">
+      <button type="button" id="demo">▶ Hear this pace</button>
+      <span id="demo-note" class="hint" aria-live="polite"></span>
+    </div>
 
     <label for="max" class="block">Fastest speed</label>
     <select id="max">

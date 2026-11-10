@@ -15,10 +15,26 @@ fieldset label { display: block; padding: 3px 0; }
 input[type="range"], select { width: 100%; margin: 4px 0; }
 .hint { color: #444; font-size: 12px; margin: 2px 0 10px; }
 input:focus-visible, select:focus-visible { outline: 3px solid #1a73e8; outline-offset: 2px; }
+.demo { display: flex; align-items: center; gap: 8px; margin: 0 0 12px; }
+.demo .hint { margin: 0; }
+#demo {
+  font: inherit;
+  font-weight: 600;
+  padding: 5px 10px;
+  border: 1px solid #1a73e8;
+  border-radius: 6px;
+  background: #1a73e8;
+  color: #fff;
+  cursor: pointer;
+  white-space: nowrap;
+}
+#demo[aria-pressed="true"] { background: transparent; color: #1a73e8; }
+#demo:focus-visible { outline: 3px solid #1a73e8; outline-offset: 2px; }
 kbd { border: 1px solid #999; border-radius: 3px; padding: 0 4px; font-size: 11px; }
 @media (prefers-color-scheme: dark) {
   body { color: #eee; background: #202124; }
   #status { background: #303134; }
   .hint { color: #bbb; }
   fieldset { border-color: #555; }
+  #demo[aria-pressed="true"] { color: #8ab4f8; border-color: #8ab4f8; }
 }

@@ -1,3 +1,4 @@
+import { calibrateIfNeeded, playPace, stopDemo } from "./demo";
 import type { Request, Status } from "./messages";
 import { loadSettings, saveSettings, type Settings } from "./settings";
 
@@ -10,6 +11,8 @@ const videoEl = $<HTMLInputElement>("video");
 const targetEl = $<HTMLInputElement>("target");
 const targetOut = $<HTMLOutputElement>("target-out");
 const maxEl = $<HTMLSelectElement>("max");
+const demoEl = $<HTMLButtonElement>("demo");
+const demoNote = $<HTMLSpanElement>("demo-note");
 
 let settings: Settings;
 let tabId: number | undefined;
@@ -88,11 +91,47 @@ videoEl.addEventListener("change", async () => {
 targetEl.addEventListener("input", () => {
   targetOut.textContent = `${Number(targetEl.value).toFixed(1)} syllables/s`;
 });
-targetEl.addEventListener("change", () => void save({ target: Number(targetEl.value) }));
+targetEl.addEventListener("change", () => {
+  void save({ target: Number(targetEl.value) });
+  if (playing) void startDemo(); // replay at the new pace
+});
+
+// ---- "Hear this pace" ----------------------------------------------------------
+
+let playing = false;
+let playId = 0;
+
+function setPlaying(on: boolean): void {
+  playing = on;
+  demoEl.setAttribute("aria-pressed", String(on));
+  demoEl.textContent = on ? "■ Stop" : "▶ Hear this pace";
+}
+
+async function startDemo(): Promise<void> {
+  const id = ++playId;
+  const target = Number(targetEl.value);
+  setPlaying(true);
+  demoNote.textContent = "";
+  const actual = await playPace(target);
+  if (id !== playId) return; // a newer playback took over
+  setPlaying(false);
+  if (actual) demoNote.textContent = `Played at about ${actual.toFixed(1)} syllables/s`;
+}
+
+demoEl.addEventListener("click", () => {
+  if (playing) {
+    playId++;
+    stopDemo();
+    setPlaying(false);
+  } else {
+    void startDemo();
+  }
+});
 maxEl.addEventListener("change", () => void save({ maxSpeed: Number(maxEl.value) }));
 
 async function main(): Promise<void> {
   settings = await loadSettings();
+  void calibrateIfNeeded(); // silently time the voice so the first demo is accurate
   const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
   tabId = tab?.id;
   current = await ask({ type: "status" });
