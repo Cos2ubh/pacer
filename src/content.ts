@@ -4,11 +4,20 @@
 // viewer picks a speed themselves.
 
 import { AudioTap } from "./audio";
+import { onButtonClick, syncButton } from "./button";
 import { blendRate, decideSpeed, MIN_CONFIDENCE } from "./decide";
 import { combineEstimates, estimateRate, type Estimate } from "./estimator";
 import { showIndicator } from "./indicator";
 import type { Phase, Request, Status } from "./messages";
-import { DEFAULTS, getChannelRate, loadSettings, onSettingsChanged, setChannelRate, type Settings } from "./settings";
+import {
+  DEFAULTS,
+  getChannelRate,
+  loadSettings,
+  onSettingsChanged,
+  saveSettings,
+  setChannelRate,
+  type Settings,
+} from "./settings";
 import { adShowing, currentChannel, currentVideoId, findVideo, onNavigate, type Channel } from "./youtube";
 
 const FRAME_RATE = 50; // loudness readings per second
@@ -38,7 +47,10 @@ interface Session {
   baseline: number; // speed the video had before Pacer touched it
   applied: number | null; // speed Pacer set, if any
   estimate?: Estimate;
+  /** Switched off for this video, by the button or by the viewer picking a speed. */
   videoOff: boolean;
+  /** Switched on for this video even though its channel is turned off. */
+  forceOn: boolean;
 }
 
 let settings: Settings = DEFAULTS;
@@ -64,6 +76,11 @@ async function init(): Promise<void> {
     // Target or max speed may have moved; respond right away.
     const s = session;
     if (s?.estimate && (s.phase === "set" || (s.phase === "measuring" && s.provisional))) decide("update");
+    updateButton();
+  });
+
+  onButtonClick(() => {
+    if (session) setVideoActive(!isActive(session));
   });
 
   for (const type of ["pointerdown", "keydown"]) {
@@ -82,9 +99,11 @@ function refresh(): void {
   const video = id ? findVideo() : null;
   if (!id || !video) {
     session = null;
+    updateButton();
     return;
   }
   if (!session || session.videoId !== id || session.video !== video) startSession(id, video);
+  updateButton(); // YouTube rebuilds its controls now and then; put the button back
 }
 
 function startSession(videoId: string, video: HTMLVideoElement): void {
@@ -103,6 +122,7 @@ function startSession(videoId: string, video: HTMLVideoElement): void {
     baseline,
     applied: current === lastPacerRate && current !== baseline ? current : null,
     videoOff: false,
+    forceOn: false,
   };
 
   if (!watched.has(video)) {
@@ -121,11 +141,52 @@ function startSession(videoId: string, video: HTMLVideoElement): void {
 // ---- policy ------------------------------------------------------------------
 
 function isBlocked(s: Session): boolean {
-  return (
-    !settings.enabled ||
-    s.videoOff ||
-    (s.channel !== undefined && settings.disabledChannels.includes(s.channel.key))
-  );
+  const channelOff = s.channel !== undefined && settings.disabledChannels.includes(s.channel.key);
+  return !settings.enabled || s.videoOff || (channelOff && !s.forceOn);
+}
+
+/** What the player button shows. */
+function isActive(s: Session): boolean {
+  return !isBlocked(s) && s.phase !== "off" && s.phase !== "overridden";
+}
+
+function updateButton(): void {
+  syncButton(session ? isActive(session) : null);
+}
+
+/** The player button and the popup's "This video" box both land here. */
+function setVideoActive(on: boolean): void {
+  const s = session;
+  if (!s) return;
+  if (!on) {
+    s.videoOff = true;
+    applyPolicy(); // puts the speed back to what it was before Pacer
+    showIndicator("Pacer off for this video");
+  } else {
+    s.videoOff = false;
+    s.forceOn = true;
+    if (!settings.enabled) {
+      settings = { ...settings, enabled: true };
+      void saveSettings({ enabled: true });
+    }
+    restart(s);
+    showIndicator("Pacer on · listening…");
+  }
+  updateButton();
+}
+
+/** Forget this video's readings and listen again from scratch. */
+function restart(s: Session): void {
+  s.phase = "measuring";
+  s.segments = [{ captureRate: s.video.playbackRate, levels: [] }];
+  s.frames = 0;
+  s.nextCheck = CHECK_EVERY_S * FRAME_RATE;
+  s.provisional = false;
+  s.estimate = undefined;
+  // Handing control back means Pacer decides from 1x, not from the speed picked by hand.
+  s.baseline = 1;
+  lastBaseline = 1;
+  s.applied = s.video.playbackRate !== 1 ? s.video.playbackRate : null;
 }
 
 /** Switches the session on or off to match the toggles. */
@@ -133,11 +194,12 @@ function applyPolicy(): void {
   const s = session;
   if (!s) return;
   if (isBlocked(s)) {
-    if (s.phase !== "off") {
+    if (s.phase !== "off" && s.phase !== "overridden") {
       if (s.applied !== null) setSpeed(s.baseline);
       s.applied = null;
       s.phase = "off";
     }
+    updateButton();
     return;
   }
   if (s.phase === "off") {
@@ -150,6 +212,7 @@ function applyPolicy(): void {
       void useChannelCache();
     }
   }
+  updateButton();
 }
 
 function setSpeed(rate: number): void {
@@ -182,10 +245,13 @@ function onRateChange(video: HTMLVideoElement): void {
 
   const byViewer = performance.now() - lastUserInput < USER_INPUT_WINDOW_MS;
   if (byViewer) {
-    if (s.phase === "measuring" || s.phase === "set") {
+    // The viewer picked a speed: switch off for this video and keep their choice.
+    if (s.phase !== "off" && s.phase !== "overridden") {
       s.phase = "overridden";
+      s.videoOff = true;
       s.applied = null;
-      showIndicator(`Pacer: leaving this video at ${rate}x`);
+      showIndicator(`Pacer off · you picked ${rate}x`);
+      updateButton();
     }
     s.baseline = rate;
     lastBaseline = rate;
@@ -347,10 +413,7 @@ function status(): Status | null {
 }
 
 function onMessage(msg: Request, _sender: chrome.runtime.MessageSender, reply: (r: Status | null) => void): void {
-  if (msg.type === "setVideoOff" && session) {
-    session.videoOff = msg.value;
-    applyPolicy();
-  }
+  if (msg.type === "setVideoOff" && session) setVideoActive(!msg.value);
   if (session && !session.channel) resolveChannel(session);
   reply(status());
 }

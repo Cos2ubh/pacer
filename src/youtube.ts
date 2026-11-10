@@ -14,6 +14,11 @@ export function findVideo(): HTMLVideoElement | null {
   return player()?.querySelector<HTMLVideoElement>("video") ?? null;
 }
 
+/** The right-hand group of buttons in the player's control bar (captions, settings…). */
+export function playerControls(): HTMLElement | null {
+  return player()?.querySelector<HTMLElement>(".ytp-right-controls") ?? null;
+}
+
 export function adShowing(): boolean {
   return player()?.classList.contains("ad-showing") ?? false;
 }

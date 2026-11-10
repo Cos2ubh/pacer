@@ -41,7 +41,7 @@ function describe(s: Status | null): string {
     case "unsure":
       return "No clear speech (music or noise?), so the speed was left alone.";
     case "overridden":
-      return `You set ${s.speed}x yourself, so Pacer is leaving this video alone.`;
+      return `You picked ${s.speed}x, so Pacer switched off for this video. Tick "This video" or click the speedometer button in the player to turn it back on.`;
   }
 }
 

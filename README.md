@@ -42,13 +42,14 @@ loudness
 
 | Want to… | Do this |
 |---|---|
+| Switch it on/off for this video | Click the **speedometer button** in the player's control bar |
+| Make it re-check the speaker | Click the button off, then on again |
 | Turn it all off | Popup toggle, or <kbd>Alt</kbd>+<kbd>Shift</kbd>+<kbd>P</kbd> |
 | Never touch a channel (music, ASMR…) | Untick **This channel** |
-| Skip just this one video | Untick **This video** |
 | Speed up more videos | Slide **Comfortable pace** up |
 | Never go crazy fast | Set **Fastest speed** |
 
-And if you change the speed yourself, Pacer takes the hint and leaves that video alone. 🫡
+And if you change the speed yourself, Pacer takes the hint: it switches off for that video and keeps your speed. 🫡 Click the button whenever you want it back.
 
 A small label on the video always tells you what Pacer just did, and screen readers announce it too.
 
