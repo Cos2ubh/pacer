@@ -1,6 +1,6 @@
 // Handles the on/off keyboard shortcut and keeps the toolbar badge honest.
 
-import { loadSettings, saveSettings } from "./settings";
+import { dropOldChannelRates, loadSettings, saveSettings } from "./settings";
 
 async function syncBadge(): Promise<void> {
   const { enabled } = await loadSettings();
@@ -19,4 +19,7 @@ chrome.storage.onChanged.addListener((changes, area) => {
 });
 
 chrome.runtime.onStartup.addListener(() => void syncBadge());
-chrome.runtime.onInstalled.addListener(() => void syncBadge());
+chrome.runtime.onInstalled.addListener(() => {
+  void syncBadge();
+  void dropOldChannelRates(); // older versions saved channel paces that run too slow
+});

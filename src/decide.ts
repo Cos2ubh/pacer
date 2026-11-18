@@ -21,6 +21,14 @@ export function decideSpeed(rate: number, settings: PaceSettings): number {
   return Math.round(capped * 20) / 20; // steps of 0.05x
 }
 
+/**
+ * Only audio heard at normal speed gives a trustworthy reading. Sped-up audio
+ * is time-stretched by the browser and reads 8–31% too slow (1.25x–2x).
+ */
+export function measuredAtNormalSpeed(playbackRate: number): boolean {
+  return Math.abs(playbackRate - 1) < 0.01;
+}
+
 /** Running average of a channel's speaking rate, weighted toward recent videos. */
 export function blendRate(previous: number | undefined, samples: number, next: number): number {
   if (previous === undefined || samples <= 0) return next;

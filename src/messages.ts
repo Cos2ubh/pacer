@@ -17,6 +17,8 @@ export interface Status {
   speed: number;
   rate?: number;
   confidence?: number;
+  /** The rate is the channel's remembered pace, not measured on this video. */
+  fromChannel: boolean;
   videoOff: boolean;
   audio: AudioState;
 }

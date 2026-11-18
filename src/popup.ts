@@ -37,9 +37,12 @@ function describe(s: Status | null): string {
     case "off":
       return "Off for this video.";
     case "measuring":
-      if (s.rate) return `Speaker at ${pace}, running at ${s.speed}x. Fine-tuning…`;
-      return s.speed !== 1 ? `Running at ${s.speed}x from this channel's usual pace. Fine-tuning…` : "Listening to the speaker…";
+      return s.speed !== 1
+        ? `Pacer can only measure at 1x, and this video is at ${s.speed}x. Click the player button to re-check.`
+        : "Listening to the speaker at 1x…";
     case "set":
+      if (s.fromChannel)
+        return `This channel usually talks at ${pace}, so it's at ${s.speed}x. Click the player button to measure this video instead.`;
       return s.speed > 1 ? `Speaker at ${pace}, sped up to ${s.speed}x.` : `Speaker at ${pace}, already at your pace.`;
     case "unsure":
       return "No clear speech (music or noise?), so the speed was left alone.";

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { blendRate, decideSpeed } from "../src/decide";
+import { blendRate, decideSpeed, measuredAtNormalSpeed } from "../src/decide";
 
 const settings = { target: 4.5, maxSpeed: 2 };
 
@@ -27,6 +27,21 @@ describe("decideSpeed", () => {
 
   it("rounds to 0.05 steps", () => {
     expect(decideSpeed(3.3, settings)).toBe(1.35);
+  });
+});
+
+describe("measuredAtNormalSpeed", () => {
+  it("trusts audio heard at 1x", () => {
+    expect(measuredAtNormalSpeed(1)).toBe(true);
+  });
+
+  it("ignores audio heard after a speed-up (it reads too slow)", () => {
+    expect(measuredAtNormalSpeed(1.25)).toBe(false);
+    expect(measuredAtNormalSpeed(1.5)).toBe(false);
+  });
+
+  it("ignores slowed-down audio too", () => {
+    expect(measuredAtNormalSpeed(0.75)).toBe(false);
   });
 });
 
